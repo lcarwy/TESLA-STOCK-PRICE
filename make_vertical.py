@@ -27,7 +27,7 @@ def _chunk(args):
     start, stop, path, fps = args
     r = _R["r"]
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "1080x1920",
-           "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "17",
+           "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
            "-pix_fmt", "yuv420p", "-g", str(fps * 2), path]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for f in range(start, stop):
@@ -88,7 +88,7 @@ def main():
             wav = os.path.join(tmp, "audio.wav")
             soundtrack.write(wav)
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", wav, "-c:v", "copy",
-                            "-af", "loudnorm=I=-15:TP=-2:LRA=11,alimiter=limit=0.8", "-ar", "48000", "-c:a", "aac",
+                            "-af", "loudnorm=I=-15:TP=-2:LRA=11,alimiter=limit=0.7", "-ar", "48000", "-c:a", "aac",
                             "-b:a", "192k", "-shortest", "-movflags", "+faststart", args.out], check=True)
     print(args.out)
 

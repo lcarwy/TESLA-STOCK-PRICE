@@ -88,7 +88,7 @@ def main():
             wav = os.path.join(tmp, "audio.wav")
             soundtrack.write(wav)
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", wav, "-c:v", "copy",
-                            "-af", "loudnorm=I=-15:TP=-2:LRA=11,alimiter=limit=0.7", "-ar", "48000", "-c:a", "aac",
+                            "-af", "loudnorm=I=-15:TP=-2:LRA=11,alimiter=limit=0.7:level=disabled", "-ar", "48000", "-c:a", "aac",
                             "-b:a", "192k", "-shortest", "-movflags", "+faststart", args.out], check=True)
     print(args.out)
 

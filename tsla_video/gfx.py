@@ -162,3 +162,43 @@ def fmt_pct(x, digits=1):
 
 def fmt_price(x):
     return f"{x:,.2f}"
+
+
+def _tokens(s):
+    tokens, word = [], ""
+    for ch in s:
+        if ch.isascii() and not ch.isspace():
+            word += ch
+            continue
+        if word:
+            tokens.append(word)
+            word = ""
+        tokens.append(ch)
+    if word:
+        tokens.append(word)
+    return tokens
+
+
+def _wrap_tokens(tokens, fnt, max_w):
+    lines, cur = [], ""
+    for tok in tokens:
+        if text_width(cur + tok, fnt) > max_w and cur:
+            lines.append(cur.rstrip())
+            cur = tok.lstrip()
+        else:
+            cur += tok
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def wrap(s, fnt, max_w):
+    """Greedy line wrap for CJK text (any character may break; ASCII words stay whole).
+    Re-wraps narrower when the last line would be a dangling one- or two-character stub."""
+    tokens = _tokens(s)
+    lines = _wrap_tokens(tokens, fnt, max_w)
+    w = max_w
+    while len(lines) > 1 and len(lines[-1]) <= 3 and w > max_w * 0.6:
+        w *= 0.92
+        lines = _wrap_tokens(tokens, fnt, w)
+    return lines

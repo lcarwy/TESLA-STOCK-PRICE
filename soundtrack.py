@@ -24,39 +24,63 @@ RNG = np.random.default_rng(1)
 PROG_MAIN = [(57, 60, 64), (53, 57, 60), (48, 52, 55), (55, 59, 62)]     # Am F C G
 PROG_DARK = [(57, 60, 64), (57, 60, 64), (53, 57, 60), (52, 56, 59)]     # Am Am F E
 PROG_LIFT = [(53, 57, 60), (55, 59, 62), (57, 60, 64), (48, 52, 55)]     # F G Am C
-DARK = [(20.0, 24.8), (31.0, 35.0), (44.2, 48.2), (54.4, 70.2)]
-LIFT = [(75.8, 84.2)]
 
-# drum pattern per section: "four" (four on the floor), "half" (half time), None
-PATTERN = [(0.0, None), (5.2, "half"), (8.8, "four"), (20.0, "half"), (24.8, "four"), (31.0, "half"),
-           (35.0, "four"), (44.2, "half"), (48.2, "four"), (54.4, "half"), (57.6, None), (60.05, "half"),
-           (67.4, None), (70.2, "four"), (75.8, "four"), (84.2, None)]
+# mood -> (drum pattern, progression, drum level, pad level, arp level)
+MOOD = {
+    "tension": (None, PROG_DARK, 0.0, 0.55, 0.25),
+    "rewind": (None, PROG_DARK, 0.0, 0.15, 0.0),
+    "calm": ("half", PROG_MAIN, 0.55, 0.45, 0.35),
+    "up": ("four", PROG_MAIN, 0.9, 0.55, 0.35),
+    "down": ("half", PROG_DARK, 0.75, 0.5, 0.2),
+    "crash": ("half", PROG_DARK, 1.0, 0.55, 0.15),
+    "suspense": (None, PROG_DARK, 0.0, 0.35, 0.1),
+    "aftermath": (None, PROG_DARK, 0.0, 0.8, 0.8),
+    "lift": ("four", PROG_LIFT, 1.0, 0.85, 0.35),
+    "explain": ("half", PROG_LIFT, 0.45, 0.7, 0.5),
+    "outro": (None, PROG_MAIN, 0.0, 1.0, 0.9),
+}
+CARDS = [(c.t0, c.t1) for c in story.CARDS]
+
+
+def mood_at(t):
+    cur = "tension"
+    for t0, t1, m in story.MOODS:
+        if t0 <= t < t1:
+            cur = m
+    return cur
+
+
+def in_card(t):
+    return any(a <= t < b for a, b in CARDS)
 
 
 def hz(m):
     return 440.0 * 2 ** ((m - 69) / 12)
 
 
-def env(points):
-    ts, vs = zip(*points)
-    return np.interp(T, ts, vs)
-
-
-def in_ranges(t, ranges):
-    return any(a <= t < b for a, b in ranges)
-
-
 def pattern_at(t):
-    cur = None
-    for t0, p in PATTERN:
-        if t >= t0:
-            cur = p
-    return cur
+    pat = MOOD[mood_at(t)][0]
+    if pat == "four" and in_card(t):
+        return "half"            # calmer groove while an explainer card is being read
+    return pat
 
 
 def chord_at(t):
-    prog = PROG_DARK if in_ranges(t, DARK) else PROG_LIFT if in_ranges(t, LIFT) else PROG_MAIN
-    return prog[int(t // 2.0) % 4]
+    return MOOD[mood_at(t)][1][int(t // 2.0) % 4]
+
+
+def level_env(idx, card_gain=1.0, ramp=0.5):
+    """Per-sample level curve for one stem from the mood table, with short ramps between sections."""
+    pts = []
+    for t0, t1, m in sorted(story.MOODS):
+        lvl = MOOD[m][idx]
+        cuts = sorted({t0, t1} | {x for a, b in CARDS for x in (a, b) if t0 < x < t1})
+        for a, b in zip(cuts, cuts[1:]):
+            g = lvl * (card_gain if in_card((a + b) / 2) else 1.0)
+            pts += [(a + ramp / 2, g), (b - ramp / 2, g)]
+    pts.sort()
+    ts, vs = zip(*pts)
+    return np.interp(T, ts, vs)
 
 
 def place(buf, t0, sig, gain=1.0):
@@ -180,8 +204,7 @@ def write(path):
     for b in range(int(DUR / block) + 1):
         t0 = b * block
         ch = chord_at(t0 + 0.01)
-        dark = in_ranges(t0 + 0.01, DARK)
-        harm = 5 if dark else 9
+        harm = 5 if MOOD[mood_at(t0 + 0.01)][1] is PROG_DARK else 9
         sl = sum(saw(hz(m) * 0.996, tb, harm) for m in ch) + 0.7 * saw(hz(ch[0] - 12), tb, 4)
         sr_ = sum(saw(hz(m) * 1.004, tb, harm) for m in ch) + 0.7 * saw(hz(ch[0] - 12), tb, 4)
         place(pad_l, t0, sl * eb)
@@ -215,7 +238,7 @@ def write(path):
             if beat % 2 == 0:
                 place(bass, t0, saw(hz(ch[0] - 24), np.arange(int(BEAT * SR)) / SR, 6, 1.1)
                       * np.exp(-np.arange(int(BEAT * SR)) / SR * 3))
-        if pat is not None or 84.2 <= t0 < DUR or t0 < 3.7:
+        if pat is not None or mood_at(t0) in ("tension", "outro"):
             tones = [ch[1] + 12, ch[2] + 12, ch[0] + 24, ch[2] + 12]
             for s, m in enumerate(tones):
                 place(arp, t0 + s * BEAT / 4, np.sin(2 * np.pi * hz(m) * a16) * ae)
@@ -233,7 +256,9 @@ def write(path):
     # bell melody for the aftermath and the outro
     bt = np.arange(int(1.6 * SR)) / SR
     bell_env = np.exp(-bt * 2.6) * adsr(len(bt), 0.005, 0.2)
-    for start, stop in ((67.4, 70.2), (84.2, DUR - 1.0)):
+    bells = [(a, b) for a, b, m in story.MOODS if m in ("aftermath", "outro")]
+    for start, stop in bells:
+        stop = min(stop, DUR - 1.0)
         k = 0
         while start + k * BEAT < stop:
             t0 = start + k * BEAT
@@ -242,21 +267,24 @@ def write(path):
             tone = np.sin(2 * np.pi * hz(m) * bt) + 0.3 * np.sin(2 * np.pi * hz(m) * 2.01 * bt)
             place(arp, t0, tone * bell_env * 0.9)
             k += 1
-    place(sfx, 57.7, riser(2.35), 0.6)
-    place(sfx, 73.8, riser(2.0), 0.45)
-    for k in range(5):
-        place(sfx, 57.9 + k * 0.5, tick(), 0.5)
+    M = story.M
+    place(sfx, M["gap"] - 2.4, riser(2.35), 0.6)              # build into the earnings gap-down
+    place(sfx, M["recap"] - 2.0, riser(2.0), 0.45)
+    k = 0
+    while M["crash"] + 0.4 + k * 0.5 < M["gap"] - 0.2:        # clock ticks while the earnings card is read
+        place(sfx, M["crash"] + 0.4 + k * 0.5, tick(), 0.45)
+        k += 1
     for p in story.PANELS:
         place(sfx, p.t0, whoosh(0.32, seed=int(p.t0 * 10)), 0.18)
+    for c in story.CARDS:
+        place(sfx, c.t0, whoosh(0.45, seed=int(c.t0 * 7)), 0.25)
+    for name in ("hold", "analog", "street", "dca", "verdict"):
+        place(sfx, M[f"concl_{name}"], whoosh(0.45, seed=len(name)), 0.25)
 
     # level automation per stem
-    g_pad = env([(0, 0.55), (3.6, 0.45), (3.8, 0.15), (5.2, 0.45), (20, 0.4), (24.8, 0.6), (31, 0.5), (35, 0.55),
-                 (54.4, 0.45), (57.6, 0.35), (60.05, 0.55), (67.4, 0.8), (70.2, 0.55), (75.8, 0.85), (84.2, 1.0),
-                 (DUR - 3, 0.9), (DUR, 0.0)])
-    g_drum = env([(0, 0), (5.2, 0.55), (8.8, 0.75), (24.8, 1.0), (31, 0.8), (35, 0.95), (57.6, 0.95), (57.7, 0),
-                  (60.0, 0), (60.05, 1.0), (75.8, 1.0), (84.2, 0.9), (84.3, 0), (DUR, 0)])
-    g_arp = env([(0, 0.25), (3.6, 0.25), (3.8, 0.0), (5.2, 0.35), (20, 0.2), (24.8, 0.35), (67.4, 0.8),
-                 (70.2, 0.35), (84.2, 0.9), (DUR - 2, 0.8), (DUR, 0)])
+    g_drum = level_env(2, card_gain=0.6)
+    g_pad = level_env(3, card_gain=1.1)
+    g_arp = level_env(4, card_gain=1.2)
     pad_gain = 0.05
     mix_m = 0.5 * drums * g_drum + 0.22 * bass * g_drum + 0.06 * arp * g_arp + 0.75 * sfx
     L = pad_l * pad_gain * g_pad + mix_m

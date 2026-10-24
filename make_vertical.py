@@ -27,7 +27,7 @@ def _chunk(args):
     start, stop, path, fps = args
     r = _R["r"]
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "1080x1920",
-           "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+           "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "medium", "-crf", "24",
            "-pix_fmt", "yuv420p", "-g", str(fps * 2), path]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     for f in range(start, stop):

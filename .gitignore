@@ -1,3 +1,5 @@
 output/preview/
 __pycache__/
 reference/
+assets/fonts/
+output/vpreview/
